@@ -3,7 +3,26 @@ import asyncio
 import contextlib
 from urllib.parse import urlsplit, urlunsplit
 
-from aiohttp import ClientSession, ClientTimeout, WSMsgType
+from aiohttp import (ClientSession, ClientTimeout, WSMsgType, WSServerHandshakeError,
+                     ClientConnectorCertificateError, ClientConnectorError)
+
+
+def connection_error(exc):
+    """Do not include URLs, request headers, or credentials in user-facing errors."""
+    if isinstance(exc, WSServerHandshakeError):
+        reasons = {401: '配信キーが一致しません。AWS側のpublisher_keyを入力し直してください',
+                   403: '接続が拒否されました。サーバーのアクセス設定を確認してください',
+                   404: '接続先が見つかりません。中継URLの末尾が/casterか確認してください',
+                   409: '別の配信接続が残っています。古いOCSを終了してください',
+                   502: '公開サーバーの中継サービスが応答していません'}
+        return f'接続失敗（HTTP {exc.status}）：' + reasons.get(exc.status, 'サーバーの接続経路を確認してください')
+    if isinstance(exc, ClientConnectorCertificateError):
+        return '接続失敗：HTTPS証明書を確認できません。PCの日時とサーバー証明書を確認してください'
+    if isinstance(exc, ClientConnectorError):
+        return '接続失敗：サーバーに到達できません（DNS・回線・443番ポートを確認）'
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return '接続失敗：通信がタイムアウトしました'
+    return '接続失敗：' + type(exc).__name__
 
 
 async def run_bridge(studio, local_port=8790):
@@ -62,8 +81,8 @@ async def run_bridge(studio, local_port=8790):
                             tasks.add(task); task.add_done_callback(tasks.discard)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            studio.public_state = '接続失敗：中継URL・配信キー・サーバーを確認してください'
+        except Exception as exc:
+            studio.public_state = connection_error(exc)
         finally:
             for task in tasks:
                 task.cancel()
