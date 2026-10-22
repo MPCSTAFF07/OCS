@@ -1,5 +1,11 @@
 obs = obslua
-local root = script_path()
+local function normalize_folder(value)
+    local path = (value or ""):gsub("\\", "/")
+    if path ~= "" and path:sub(-1) ~= "/" then path = path .. "/" end
+    return path
+end
+local root = normalize_folder(script_path())
+local write_error_logged = false
 local output = nil
 local last_revision = ""
 local track = 2
@@ -9,11 +15,28 @@ local start_deadline = 0
 local was_active = false
 
 local function report(message)
-    local f = io.open(root .. "runtime/obs-status.txt", "w")
-    if f then
-        f:write(tostring(os.time()) .. "\n" .. message)
-        f:close()
+    local path = root .. "runtime/obs-status.txt"
+    local f, err = io.open(path, "w")
+    if not f then
+        if not write_error_logged then
+            obs.script_log(obs.LOG_ERROR, "OCS: 状態ファイルへ書き込めません: " .. path .. " / " .. tostring(err) .. "。OCS接続フォルダとSTART.cmdの起動を確認してください。")
+            write_error_logged = true
+        end
+        return false
     end
+    f:write(tostring(os.time()) .. "\n" .. message)
+    f:close()
+    write_error_logged = false
+    return true
+end
+
+local function connection_test()
+    obs.script_log(obs.LOG_INFO, "OCS 接続テスト / folder=" .. root)
+    local state = output and obs.obs_output_active(output) and "active" or "idle"
+    if report(state) then
+        obs.script_log(obs.LOG_INFO, "OCS: 状態ファイルの書き込み成功")
+    end
+    return false
 end
 
 local function stop_output()
@@ -94,11 +117,14 @@ function script_description()
     return "実況解説への本番映像共有。START.cmdを起動後、OBSのカスタムブラウザドックに管理URLを追加してください。音声トラック2は実況解説の声を除く設定を推奨します。"
 end
 function script_defaults(settings)
+    obs.obs_data_set_default_string(settings, "ocs_folder", normalize_folder(script_path()))
     obs.obs_data_set_default_int(settings, "track", 2)
     obs.obs_data_set_default_int(settings, "quality", 0)
 end
 function script_properties()
     local p = obs.obs_properties_create()
+    obs.obs_properties_add_path(p, "ocs_folder", "OCS接続フォルダ（START.cmdがある場所）", obs.OBS_PATH_DIRECTORY, nil, nil)
+    obs.obs_properties_add_button(p, "connection_test", "接続テスト（スクリプトログに結果を表示）", connection_test)
     obs.obs_properties_add_int(p, "track", "共有する音声トラック", 1, 6, 1)
     local q = obs.obs_properties_add_list(p, "quality", "画質（変更後は共有を再開始）", obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
     obs.obs_property_list_add_int(q, "標準 960×540 / 軽量", 0)
@@ -106,10 +132,24 @@ function script_properties()
     return p
 end
 function script_update(settings)
+    local selected = obs.obs_data_get_string(settings, "ocs_folder")
+    local next_root = normalize_folder(selected ~= "" and selected or script_path())
+    if next_root ~= root then
+        stop_output()
+        root = next_root
+        write_error_logged = false
+        last_status = 0
+        local f = io.open(root .. "runtime/command.txt", "r")
+        last_revision = ""
+        if f then last_revision = f:read("*l") or ""; f:close() end
+        report("idle")
+    end
     track = obs.obs_data_get_int(settings, "track")
     quality = obs.obs_data_get_int(settings, "quality")
 end
 function script_load(settings)
+    script_update(settings)
+    obs.script_log(obs.LOG_INFO, "OCS Lua v0.2.3 loaded / folder=" .. root)
     -- Ignore commands left by a previous server session.
     local f = io.open(root .. "runtime/command.txt", "r")
     if f then last_revision = f:read("*l") or ""; f:close() end
