@@ -17,7 +17,10 @@ def test_lua_start_stop_mixer_and_quality(tmp_path):
         obs_data_release=function() end,
         obs_data_set_string=function(s,k,v) s[k]=v end,
         obs_data_set_int=function(s,k,v) s[k]=v end,
-        obs_data_get_int=function(s,k) return s[k] end,
+        obs_data_get_int=function(s,k) return s[k] or 0 end,
+        obs_data_get_string=function(s,k) return s[k] or "" end,
+        script_log=function(level,msg) captured.logs=captured.logs or {}; table.insert(captured.logs,msg) end,
+        LOG_INFO=200, LOG_ERROR=100,
         obs_output_create=function(id,name,s) captured.settings=s; captured.id=id; return {} end,
         obs_output_set_media=function() captured.media=true end,
         obs_get_video=function() return {} end, obs_get_audio=function() return {} end,
@@ -32,7 +35,7 @@ def test_lua_start_stop_mixer_and_quality(tmp_path):
     ''')
     lua.execute((Path(__file__).resolve().parents[1]/'caster-share.lua').read_text())
     lua.globals().script_update(lua.table_from({'track':2,'quality':1}))
-    lua.globals().script_load(lua.table())
+    lua.globals().script_load(lua.table_from({'track':2,'quality':1}))
     (runtime/'command.txt').write_text('1\nstart\n')
     lua.globals().captured.poll()
     c=lua.globals().captured
@@ -61,3 +64,11 @@ def test_lua_start_stop_mixer_and_quality(tmp_path):
     assert c.stopped
     assert '出力が停止しました' in (runtime/'obs-status.txt').read_text()
     lua.globals().script_unload()
+    # Choose a different server folder, without a trailing slash, and verify its heartbeat.
+    alternate=tmp_path/'OCS other folder';(alternate/'runtime').mkdir(parents=True)
+    lua.globals().script_update(lua.table_from({'ocs_folder':str(alternate).replace(chr(47),chr(92)),'track':2,'quality':0}))
+    assert (alternate/'runtime/obs-status.txt').read_text().splitlines()[1]=='idle'
+    # A nonexistent runtime directory must explain why the status file cannot update.
+    lua.globals().script_update(lua.table_from({'ocs_folder':str(tmp_path/'missing'),'track':2,'quality':0}))
+    logs=list(lua.globals().captured.logs.values())
+    assert any('状態ファイルへ書き込めません' in line and 'missing/runtime' in line for line in logs)
