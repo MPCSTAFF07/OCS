@@ -13,10 +13,36 @@ from urllib.parse import urlsplit, urlencode
 
 from aiohttp import web
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCRtpSender, RTCSessionDescription, MediaStreamTrack
+from aiortc.codecs import h264, vpx
 from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRelay
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("caster-share")
+# aiortc's default H264 encoder is fixed at 30 FPS / level 3.1. Use VP8
+# for 1080p or >30 FPS rather than sending H264 beyond the negotiated level.
+# Both codecs retain receiver-driven congestion control up to this ceiling.
+h264.MAX_BITRATE = vpx.MAX_BITRATE = 12_000_000
+h264.DEFAULT_BITRATE = vpx.DEFAULT_BITRATE = 8_000_000
+DEFAULT_AV = {"height": 1080, "fps": 60, "bitrate": 8000,
+              "audio_mode": "legacy", "audio_sources": []}
+
+
+def validate_av(data):
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="映像・音声設定が不正です。")
+    for key, allowed in (("height", (540, 720, 1080)), ("fps", (30, 60))):
+        if type(data.get(key)) is not int or data[key] not in allowed:
+            raise web.HTTPBadRequest(text="解像度は540/720/1080、FPSは30/60を選択してください。")
+    bitrate = data.get("bitrate")
+    sources = data.get("audio_sources")
+    if type(bitrate) is not int or not 1500 <= bitrate <= 12000:
+        raise web.HTTPBadRequest(text="映像ビットレートは1500〜12000kbpsで入力してください。")
+    if (data.get("audio_mode") != "selected" or not isinstance(sources, list)
+            or len(sources) > 128 or any(not isinstance(x, str) or not 1 <= len(x) <= 256 for x in sources)):
+        raise web.HTTPBadRequest(text="共有する音源を選択してください。")
+    return {"height": data["height"], "fps": data["fps"], "bitrate": bitrate,
+            "audio_mode": "selected", "audio_sources": list(dict.fromkeys(sources))}
+
 
 
 class MonitorTrack(MediaStreamTrack):
@@ -25,11 +51,23 @@ class MonitorTrack(MediaStreamTrack):
         self.kind = source.kind
         self.source = source
         self.state = state
+        self.next_time = None
 
     async def recv(self):
-        frame = await self.source.recv()
-        self.state.last_frame[self.kind] = time.monotonic()
-        return frame
+        while True:
+            frame = await self.source.recv()
+            self.state.last_frame[self.kind] = time.monotonic()
+            if self.kind != "video" or frame.pts is None or frame.time_base is None:
+                return frame
+            stamp = float(frame.pts * frame.time_base)
+            interval = 1 / self.state.av["fps"]
+            if self.next_time is None or stamp < self.next_time - 1:
+                self.next_time = stamp
+            if stamp + 0.0001 >= self.next_time:
+                self.next_time += interval
+                if self.next_time < stamp:
+                    self.next_time = stamp + interval
+                return frame
 
 
 class Studio:
@@ -43,13 +81,19 @@ class Studio:
         self.error = ""
         self.base_url = ""
         self.public = {}
+        self.av = dict(DEFAULT_AV)
         self.public_state = "未設定"
         self.ice_servers = []
         config = self.runtime / "config.json"
         if config.exists():
-            with contextlib.suppress(ValueError):
+            with contextlib.suppress(ValueError, web.HTTPBadRequest):
                 loaded = json.loads(config.read_text("utf-8"))
                 self.public = loaded.get("public", {})
+                if "av" in loaded:
+                    self.av = validate_av(loaded["av"])
+        h264.DEFAULT_BITRATE = vpx.DEFAULT_BITRATE = self.av["bitrate"] * 1000
+        if self.av["audio_mode"] == "selected":
+            self.write_av()
         self.player = None
         self.relay = MediaRelay()
         self.tracks = []
@@ -66,6 +110,44 @@ class Studio:
         tmp.write_text(f"{time.time_ns()}\n{action}\n", encoding="utf-8")
         os.replace(tmp, self.runtime / "command.txt")
 
+    def save_config(self):
+        tmp = self.runtime / "config.tmp"
+        tmp.write_text(json.dumps({"public": self.public, "av": self.av}
+                                  if self.av["audio_mode"] == "selected" else {"public": self.public}), encoding="utf-8")
+        os.replace(tmp, self.runtime / "config.json")
+
+    def write_av(self):
+        tmp = self.runtime / "av-settings.tmp"
+        tmp.write_text(json.dumps({**self.av, "sources": [{"id": x} for x in self.av["audio_sources"]]}, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self.runtime / "av-settings.json")
+
+    def obs_details(self):
+        try:
+            data = json.loads((self.runtime / "obs-details.json").read_text("utf-8"))
+            if abs(time.time() - data["timestamp"]) < 5:
+                return data
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return {"sources": [], "available_track": 0, "error": "OBSのLuaスクリプトを更新・再読み込みしてください。"}
+
+    async def configure_av(self, data):
+        settings = validate_av(data)
+        details = self.obs_details()
+        if details.get("error") or not details.get("available_track"):
+            raise web.HTTPConflict(text=details.get("error") or "共有用の空き音声トラックがありません。OBSの録画トラックを1つ空けてください。")
+        known = {x["id"] for x in details.get("sources", [])}
+        if any(x not in known for x in settings["audio_sources"]):
+            raise web.HTTPConflict(text="OBSの音源が変わりました。画面を更新して選び直してください。")
+        async with self.lock:
+            resume = self.sharing
+            await self._stop()
+            self.av = settings
+            h264.DEFAULT_BITRATE = vpx.DEFAULT_BITRATE = settings["bitrate"] * 1000
+            self.save_config()
+            self.write_av()
+            if resume:
+                self._start()
+
     def obs_status(self):
         try:
             stamp, message = (self.runtime / "obs-status.txt").read_text("utf-8").split("\n", 1)
@@ -81,6 +163,7 @@ class Studio:
         if self.public.get("viewer_url") and self.public.get("relay_url"):
             invite_url = self.public["viewer_url"] + "#" + urlencode({"api": self.public["relay_url"], "token": self.invite})
         return dict(sharing=self.sharing, live=live, error=self.error,
+                    av=self.av, obs_audio=self.obs_details(),
                     public_state=self.public_state,
                     public={k:v for k,v in self.public.items() if k != "publisher_key"},
                     obs=self.obs_status(), base_url=self.base_url,
@@ -119,15 +202,23 @@ class Studio:
             if self.sharing:
                 return
             await self._stop()
-            if self.obs_status() in ("missing", "unloaded"):
-                raise web.HTTPConflict(text="OBSでcaster-share.luaを追加してください。")
-            self.sharing = True
-            self.error = ""
-            self.last_frame.clear()
-            self.started_at = time.monotonic()
-            # The receiver starts opening immediately; OBS polls the command every 250 ms.
-            self.open_task = asyncio.create_task(self.open_media())
-            self.command("start")
+            self._start()
+
+    def _start(self):
+        if self.obs_status() in ("missing", "unloaded"):
+            raise web.HTTPConflict(text="OBSでcaster-share.luaを追加してください。")
+        if self.av["audio_mode"] == "selected":
+            details = self.obs_details()
+            if details.get("error") or not details.get("available_track"):
+                raise web.HTTPConflict(text=details.get("error") or "共有用の音声トラックを確保できません。")
+        self.sharing = True
+        self.error = ""
+        self.last_frame.clear()
+        self.started_at = time.monotonic()
+        self.open_task = asyncio.create_task(self.open_media())
+        # Old Lua treats an unknown command as stop, so an incomplete upgrade
+        # cannot accidentally share the old mixed-audio track.
+        self.command("start_av" if self.av["audio_mode"] == "selected" else "start")
 
     async def _stop(self):
         self.sharing = False
@@ -193,7 +284,7 @@ def create_app(studio=None, *, bridge_enabled=True, local_port=8790):
 
     async def asset(request):
         name = request.match_info["name"]
-        if name not in ("style.css", "dock.js", "view.js"):
+        if name not in ("style.css", "dock.js", "view.js", "av-controls.js"):
             raise web.HTTPNotFound()
         return web.FileResponse(s.root / "web" / name)
 
@@ -216,6 +307,8 @@ def create_app(studio=None, *, bridge_enabled=True, local_port=8790):
             item = s.peers.pop(str(data.get("id")), None)
             if item:
                 await item[0].close()
+        elif action == "av_config":
+            await s.configure_av(data)
         elif action == "config":
             public = {}
             for key in ("relay_url", "viewer_url"):
@@ -230,9 +323,7 @@ def create_app(studio=None, *, bridge_enabled=True, local_port=8790):
                 raise web.HTTPBadRequest(text="配信キーはサーバー導入時に発行された32文字以上の値を入力してください。")
             public["publisher_key"] = secret
             s.public = public
-            tmp = s.runtime / "config.tmp"
-            tmp.write_text(json.dumps({"public": public}), encoding="utf-8")
-            os.replace(tmp, s.runtime / "config.json")
+            s.save_config()
         else:
             raise web.HTTPBadRequest(text="不明な操作です。")
         return web.json_response(s.status())
@@ -275,7 +366,8 @@ def create_app(studio=None, *, bridge_enabled=True, local_port=8790):
             for track in s.tracks:
                 sender = pc.addTrack(s.relay.subscribe(track, buffered=False))
                 if track.kind == "video":
-                    codecs = [c for c in RTCRtpSender.getCapabilities("video").codecs if c.mimeType == "video/H264"]
+                    mime = "video/VP8" if s.av["fps"] > 30 or s.av["height"] > 720 else "video/H264"
+                    codecs = [c for c in RTCRtpSender.getCapabilities("video").codecs if c.mimeType == mime]
                     for trans in pc.getTransceivers():
                         if trans.sender == sender:
                             trans.setCodecPreferences(codecs)

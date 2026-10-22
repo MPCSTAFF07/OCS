@@ -1,5 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
+const avControls = window.OCSAV(data=>act(data));
 const token = location.hash.slice(1);
 let busy = false;
 let revision = 0;
@@ -12,6 +13,7 @@ async function api(data) {
   return r.json();
 }
 function render(s) {
+  avControls.render(s,busy);
   $('badge').textContent = s.live ? '共有中' : s.sharing ? '映像待機中' : '停止中';
   $('start').disabled = busy || s.sharing;
   $('stop').disabled = busy || !s.sharing;
@@ -30,7 +32,7 @@ function render(s) {
   }
   if(!s.viewers.length){const li=document.createElement('li');li.textContent='接続者はいません';$('viewers').append(li);}
 }
-async function act(data){if(busy)return false;busy=true;revision++;$('save').disabled=true;$('error').textContent='';try{render(await api(data));return true;}catch(e){$('error').textContent=e.message;return false;}finally{busy=false;$('save').disabled=false;refresh();}}
+async function act(data){if(busy)return false;busy=true;avControls.unavailable();revision++;$('save').disabled=true;$('error').textContent='';try{render(await api(data));return true;}catch(e){$('error').textContent=e.message;return false;}finally{busy=false;$('save').disabled=false;refresh();}}
 async function refresh(){if(busy)return;const current=++revision;try{const state=await api();if(busy||current!==revision)return;render(state);if($('error').textContent.startsWith('管理画面に接続できません'))$('error').textContent='';}catch(e){if(!busy&&current===revision)$('error').textContent='管理画面に接続できません。START.cmdの起動と管理URLを確認してください。';}}
 async function copy(id){const input=$(id);input.select();try{await navigator.clipboard.writeText(input.value);}catch(e){if(!document.execCommand('copy')){$('error').textContent='URLを選択してコピーしてください。';}}}
 $('start').onclick=()=>act({action:'start'});$('stop').onclick=()=>act({action:'stop'});

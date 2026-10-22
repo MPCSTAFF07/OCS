@@ -11,7 +11,7 @@ function setup(){
   const get=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);};
   const state={live:false,sharing:false,error:'',obs:'idle',invite_url:'',public_state:'未設定',public:{},viewers:[]};
   let tick,fail=false,deferGet=null;const posts=[];
-  const ctx={document:{getElementById:get,createElement:node,activeElement:null},location:{hash:'#test',href:'http://localhost/dock#test'},navigator:{},confirm:()=>true,setInterval:fn=>{tick=fn;},fetch:async(url,opt)=>{
+  const ctx={window:{OCSAV:()=>({render(){},unavailable(){},reset(){}})},document:{getElementById:get,createElement:node,activeElement:null},location:{hash:'#test',href:'http://localhost/dock#test'},navigator:{},confirm:()=>true,setInterval:fn=>{tick=fn;},fetch:async(url,opt)=>{
     if(opt.method==='POST'){
       const data=JSON.parse(opt.body);posts.push(data);
       if(fail)return {ok:false,text:async()=> 'validation failed'};

@@ -1,5 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
+const avControls=window.OCSAV(data=>action(data));
 let endpoint='',key='',timer=null,busy=false,generation=0;
 
 async function api(data){
@@ -20,11 +21,13 @@ async function api(data){
   }finally{clearTimeout(timeout);}
 }
 function unavailable(){
+  avControls.unavailable();
   $('badge').textContent='未接続';
   for(const id of ['start','stop','rotate','copy'])$(id).disabled=true;
   $('invite').value='';$('count').textContent='0';$('viewers').replaceChildren();
 }
 function render(s){
+  avControls.render(s,busy);
   $('badge').textContent=s.live?'共有中':s.sharing?'映像待機中':'停止中';
   $('message').textContent=s.error||(s.obs==='missing'||s.obs==='unloaded'?'OBSのLuaスクリプトとの接続待ちです。':s.obs.startsWith('error:')?s.obs:s.live?'本番映像を共有しています。':s.sharing?'OBSからの映像を待っています。':'共有を開始できます。');
   $('start').disabled=busy||s.sharing;$('stop').disabled=busy||!s.sharing;
@@ -41,6 +44,7 @@ function render(s){
   if(!s.viewers.length){const li=document.createElement('li');li.textContent='接続者はいません';$('viewers').append(li);}
 }
 function logOut(){
+  avControls.reset();
   generation++;clearTimeout(timer);timer=null;key='';endpoint='';busy=false;
   unavailable();$('panel').hidden=true;$('login').hidden=false;$('connect').disabled=false;
   $('admin-key').value='';$('connection').textContent='';$('message').textContent='';$('error').textContent='';
@@ -67,7 +71,7 @@ async function poll(){
 async function action(data){
   if(busy||!key)return;
   busy=true;const version=++generation;clearTimeout(timer);unavailable();
-  try{const state=await api(data);if(version===generation){busy=false;render(state);$('error').textContent='';}}
+  try{const state=await api(data);if(version===generation){busy=false;render(state);$('error').textContent='';return true;}}
   catch(e){if(version===generation){if(e.status===401)logOut();$('error').textContent=errorMessage(e);}}
   finally{if(version===generation){busy=false;poll();}}
 }

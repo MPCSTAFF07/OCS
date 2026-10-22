@@ -8,8 +8,19 @@
 <div id="panel" hidden>
 <p id="message" role="status">接続しています。</p>
 <div class="buttons"><button id="start" class="primary" disabled>共有開始</button><button id="stop" disabled>停止</button></div>
+<section aria-labelledby="av-title"><h2 id="av-title">共有する映像・音声</h2>
+<p id="av-info" role="status">OBSの音源を確認しています。</p>
+<fieldset id="av-fields" disabled><legend>画質と音源</legend>
+<label for="av-height">解像度</label><select id="av-height"><option value="540">960×540</option><option value="720">1280×720</option><option value="1080" selected>1920×1080</option></select>
+<label for="av-fps">FPS上限</label><select id="av-fps"><option value="30">30FPS</option><option value="60" selected>60FPS</option></select>
+<label for="av-bitrate">映像ビットレート（kbps）</label><input id="av-bitrate" type="number" min="1500" max="12000" step="500" value="8000">
+<p><small>60FPSにはOBSの設定 → 映像も60FPSにしてください。共有はOBSの出力FPSまでです。回線やPC負荷に応じて画質は変動します。</small></p>
+<h2>共有に載せる音（OBSの音声ミキサー）</h2><div id="audio-sources"></div>
+<p id="av-note"></p><p><small>実況・解説・Discordの音源はチェックを外します。ゲームと通話が同じ「デスクトップ音声」に入る場合は、OBSのアプリケーション音声キャプチャで分けてください。OBSのミュートと音量も反映されます。</small></p>
+<button id="av-save" type="button">映像・音声設定を保存</button>
+</fieldset><small>共有中に保存すると視聴接続を切断して再開始します。視聴側は自動で再接続します。戻らない場合は退出して視聴開始を押してください。</small></section>
 <section><h2>招待URL</h2><input id="invite" readonly aria-label="実況解説への招待URL"><div class="buttons"><button id="copy" disabled>URLをコピー</button><button id="rotate" disabled>URLを更新</button></div></section>
 <section><h2>接続者 <span id="count">0</span></h2><ul id="viewers"></ul></section>
 <section><small id="connection"></small><div class="buttons"><button id="logout">ログアウト</button></div></section>
 </div><p id="error" class="error" role="alert"></p>
-</main><script src="./manage.js"></script></body></html>
+</main><script src="./av-controls.js"></script><script src="./manage.js"></script></body></html>

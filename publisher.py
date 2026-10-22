@@ -65,7 +65,7 @@ async def run_bridge(studio, local_port=8790):
                     async def reply(message):
                         remote_admin = message['type']=='admin'
                         data = message['data']
-                        if remote_admin and data.get('action') not in ('status','start','stop','rotate','disconnect'):
+                        if remote_admin and data.get('action') not in ('status','start','stop','rotate','disconnect','av_config'):
                             await ws.send_json({'type':'result','request_id':message['request_id'],
                                                 'status':400,'data':{'error':'管理操作が不正です。'}})
                             return

@@ -9,7 +9,7 @@ function setup(){
   const make=()=>({value:'',textContent:'',hidden:false,disabled:false,children:[],replaceChildren(){this.children=[];},append(...items){this.children.push(...items);},select(){}});
   const get=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
   const context={URL,AbortController,console,document:{getElementById:get,createElement:make,execCommand:()=>true},
-    navigator:{clipboard:{writeText:async()=>{}}},window:{addEventListener(){}},confirm:()=>true,
+    navigator:{clipboard:{writeText:async()=>{}}},window:{addEventListener(){},OCSAV:()=>({render(){},unavailable(){},reset(){}})},confirm:()=>true,
     setTimeout:(fn,delay)=>{const id=++sequence;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),
     fetch:async(url,options)=>{
       requests.push({url,...options});

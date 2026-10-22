@@ -1,3 +1,4 @@
+import json
 import asyncio
 import sys
 import time
@@ -65,6 +66,13 @@ async def test_management_commands_cross_broker_and_outbound_bridge(tmp_path):
             assert response.status==200 and s.sharing
             response=await client.post(public.make_url('/api/admin'),headers=ah,json={'action':'stop'})
             assert response.status==200 and not s.sharing
+            # AV changes traverse both whitelists; viewer tokens still cannot administer them.
+            (s.runtime/'obs-details.json').write_text(json.dumps(dict(timestamp=time.time(),available_track=6,error='',sources=[dict(id='game',name='ゲーム')])))
+            av=dict(action='av_config',height=1080,fps=60,bitrate=8000,audio_mode='selected',audio_sources=['game'])
+            response=await client.post(public.make_url('/api/admin'),headers=ah,json=av)
+            assert response.status==200 and s.av['audio_sources']==['game']
+            assert (await response.json())['av']['height']==1080
+            assert (await client.post(public.make_url('/api/admin'),headers={'Authorization':'Bearer '+s.invite},json=av)).status==401
             assert s.public['publisher_key']=='p'*40
     finally:
         task.cancel();await asyncio.gather(task,return_exceptions=True)

@@ -59,7 +59,7 @@ class Broker:
             raise web.HTTPBadRequest(text='接続情報が不正です。')
         if not isinstance(data,dict):
             raise web.HTTPBadRequest()
-        if kind=='admin' and data.get('action') not in ('status','start','stop','rotate','disconnect'):
+        if kind=='admin' and data.get('action') not in ('status','start','stop','rotate','disconnect','av_config'):
             raise web.HTTPBadRequest(text='この管理操作には対応していません。接続設定は配信PCで変更してください。')
         rid=secrets.token_urlsafe(16);future=asyncio.get_running_loop().create_future()
         self.pending[rid]=future

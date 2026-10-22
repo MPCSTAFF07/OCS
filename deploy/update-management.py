@@ -63,7 +63,7 @@ def main():
     print('Management URL: '+setup['admin_url'])
     print('Show the private management key:')
     print('sudo python3 -c \'import json; print(json.load(open("/etc/obs-caster-share/config.json"))["admin_key"])\'')
-    print('Update publisher.py on the broadcasting PC, then restart OCS once.')
+    print('Update OCS (server.py, publisher.py, caster-share.lua and web assets) on the broadcasting PC; reload Lua and restart OCS.')
 
 
 if __name__=='__main__':main()
