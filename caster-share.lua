@@ -5,6 +5,8 @@ local last_revision = ""
 local track = 2
 local quality = 0
 local last_status = 0
+local start_deadline = 0
+local was_active = false
 
 local function report(message)
     local f = io.open(root .. "runtime/obs-status.txt", "w")
@@ -24,6 +26,8 @@ end
 
 local function start_output()
     stop_output()
+    was_active = false
+    start_deadline = os.time() + 3
     local settings = obs.obs_data_create()
     obs.obs_data_set_string(settings, "url", "udp://127.0.0.1:18791?pkt_size=1316")
     obs.obs_data_set_string(settings, "format_name", "mpegts")
@@ -61,9 +65,18 @@ local function poll()
     if os.time() ~= last_status then
         last_status = os.time()
         if output then
-            if obs.obs_output_active(output) then report("active")
+            if obs.obs_output_active(output) then
+                was_active = true
+                report("active")
+            elseif not was_active and os.time() < start_deadline then
+                -- FFmpeg initializes on a background thread after obs_output_start returns.
+                -- An inactive output during this window has not stopped yet.
+                report("starting")
             else
-                local err = obs.obs_output_get_last_error(output) or "出力が停止しました。再度開始してください。"
+                local err = obs.obs_output_get_last_error(output)
+                if not err or err == "" then
+                    err = was_active and "出力が停止しました。OBSのログを確認してください。" or "出力を開始できませんでした。OBSのログを確認してください。"
+                end
                 report("error: " .. err)
                 stop_output()
             end
