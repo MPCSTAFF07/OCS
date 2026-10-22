@@ -1,10 +1,18 @@
 """Outbound-only signaling link: the broadcaster needs no VPN or open ports."""
 import asyncio
 import contextlib
+import ssl
+import certifi
 from urllib.parse import urlsplit, urlunsplit
 
-from aiohttp import (ClientSession, ClientTimeout, WSMsgType, WSServerHandshakeError,
+from aiohttp import (ClientSession, ClientTimeout, TCPConnector, WSMsgType, WSServerHandshakeError,
                      ClientConnectorCertificateError, ClientConnectorError)
+
+
+def create_tls_context():
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    return context
 
 
 def connection_error(exc):
@@ -17,7 +25,9 @@ def connection_error(exc):
                    502: '公開サーバーの中継サービスが応答していません'}
         return f'接続失敗（HTTP {exc.status}）：' + reasons.get(exc.status, 'サーバーの接続経路を確認してください')
     if isinstance(exc, ClientConnectorCertificateError):
-        return '接続失敗：HTTPS証明書を確認できません。PCの日時とサーバー証明書を確認してください'
+        code = getattr(exc.certificate_error, 'verify_code', None)
+        suffix = f'（検証コード {code}）' if code is not None else ''
+        return '接続失敗：HTTPS証明書を確認できません' + suffix + '。PCの日時とサーバー証明書を確認してください'
     if isinstance(exc, ClientConnectorError):
         return '接続失敗：サーバーに到達できません（DNS・回線・443番ポートを確認）'
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
@@ -38,7 +48,8 @@ async def run_bridge(studio, local_port=8790):
             url = urlsplit(cfg['relay_url'])
             ws_url = urlunsplit(('wss' if url.scheme == 'https' else 'ws', url.netloc,
                                 url.path.rstrip('/')+'/ws/publisher', '', ''))
-            async with ClientSession(timeout=ClientTimeout(total=35)) as session:
+            async with ClientSession(timeout=ClientTimeout(total=35),
+                                     connector=TCPConnector(ssl=create_tls_context())) as session:
                 async with session.ws_connect(ws_url, headers={'Authorization':'Bearer '+cfg['publisher_key']},
                                               heartbeat=15, max_msg_size=128*1024) as ws:
                     async def status_loop():
