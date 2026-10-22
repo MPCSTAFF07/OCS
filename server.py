@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import secrets
+import socket
 import time
 import webbrowser
 from pathlib import Path
@@ -335,6 +336,27 @@ def create_app(studio=None, *, bridge_enabled=True, local_port=8790):
     return app
 
 
+def prepare_server(root=ROOT, port=8790):
+    """Reserve the port before touching commands, tokens, or public connections."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "nt":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", port))
+        listener.listen(128)
+        listener.setblocking(False)
+        studio = Studio(root)
+        actual_port = listener.getsockname()[1]
+        dock_url = f"http://127.0.0.1:{actual_port}/dock#" + studio.admin
+        (studio.runtime / "dock-url.txt").write_text(dock_url, encoding="utf-8")
+        return listener, studio, dock_url
+    except BaseException:
+        listener.close()
+        raise
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -342,11 +364,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # Access logs are disabled: invitation tokens never appear in URLs sent to the server.
-    studio = Studio()
-    dock_url = "http://127.0.0.1:8790/dock#" + studio.admin
-    (studio.runtime / "dock-url.txt").write_text(dock_url, encoding="utf-8")
+    try:
+        listener, studio, dock_url = prepare_server()
+    except OSError:
+        raise SystemExit("8790番ポートは使用中です。起動済みのOCSを終了してから実行してください。管理URLは変更していません。")
     print("OBS Caster Share\n管理URLは runtime/dock-url.txt に保存しました。\n終了は Ctrl+C")
     if not args.no_browser:
         import threading
         threading.Timer(1.5, lambda: webbrowser.open(dock_url)).start()
-    web.run_app(create_app(studio), host="127.0.0.1", port=8790, access_log=None)
+    web.run_app(create_app(studio), sock=listener, access_log=None)
