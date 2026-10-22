@@ -58,16 +58,24 @@ async def run_bridge(studio, local_port=8790):
                                 await ws.close()
                                 return
                             st = studio.status()
-                            await ws.send_json({'type':'status', 'token':studio.invite,
+                            await ws.send_json({'type':'status', 'token':studio.invite, 'remote_admin':True,
                                                 **{k:st[k] for k in ('sharing','live','error')}})
                             await asyncio.sleep(1)
 
                     async def reply(message):
-                        path = 'offer' if message['type']=='offer' else 'leave'
+                        remote_admin = message['type']=='admin'
+                        data = message['data']
+                        if remote_admin and data.get('action') not in ('status','start','stop','rotate','disconnect'):
+                            await ws.send_json({'type':'result','request_id':message['request_id'],
+                                                'status':400,'data':{'error':'管理操作が不正です。'}})
+                            return
+                        path = 'admin' if remote_admin else 'offer' if message['type']=='offer' else 'leave'
+                        method = 'GET' if remote_admin and data.get('action')=='status' else 'POST'
+                        auth_token = studio.admin if remote_admin else message.get('token','')
                         try:
-                            async with session.post(f'http://127.0.0.1:{local_port}/api/{path}',
-                                                    headers={'Authorization':'Bearer '+message.get('token','')},
-                                                    json=message['data']) as r:
+                            async with session.request(method, f'http://127.0.0.1:{local_port}/api/{path}',
+                                                       headers={'Authorization':'Bearer '+auth_token},
+                                                       json=data if method=='POST' else None) as r:
                                 result = await r.json() if r.status==200 else {'error':await r.text()}
                                 await ws.send_json({'type':'result','request_id':message['request_id'],
                                                     'status':r.status,'data':result})
@@ -85,7 +93,7 @@ async def run_bridge(studio, local_port=8790):
                         if message.get('type') == 'hello':
                             studio.ice_servers = message['ice_servers']
                             studio.public_state = '接続済み'
-                        elif message.get('type') in ('offer','leave'):
+                        elif message.get('type') in ('offer','leave','admin'):
                             if 'ice_servers' in message:
                                 studio.ice_servers = message['ice_servers']
                             task=asyncio.create_task(reply(message))
