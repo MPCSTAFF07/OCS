@@ -27,10 +27,10 @@ GitHub Pagesだけでは映像を中継できません。AWS側の導入が完�
 
 ## 1. GitHub Pagesを準備
 
-1. GitHubで公開リポジトリを作ります。名前の例：`obs-caster-share`。
+1. GitHubで公開リポジトリを作ります。このリポジトリ：`MPCSTAFF07/OCS`。
 2. このフォルダの中身をアップロードします。実行後のruntimeフォルダや仮想環境はアップロードしません。
 3. Settings → Pages → Deploy from a branch → main /docs → Save。
-4. 表示されたURLを控えます。例：`https://ユーザー名.github.io/obs-caster-share/`。
+4. 表示されたURLを控えます。例：`https://mpcstaff07.github.io/OCS/`。
 
 視聴ページのファイルはdocsの中です。リポジトリ直下のindex.htmlではありません。
 GitHub側の設定後に公開されます。このZIPを展開しただけでは公開されません。
@@ -48,7 +48,7 @@ ZIPをEC2のホームディレクトリにアップロードして展開しま�
 sudo python3 deploy/install.py \
   --domain 配信サーバーのドメイン \
   --public-ip EC2のパブリックIPv4 \
-  --pages-url https://ユーザー名.github.io/obs-caster-share/
+  --pages-url https://mpcstaff07.github.io/OCS/
 ```
 
 ドメインはhttps://を付けず入力します。既存のHTTPS証明書が使われ、新しい証明書取得はしません。
@@ -147,7 +147,3 @@ sudo journalctl -u obs-caster-relay -u obs-caster-turn -n 80 --no-pager
 
 VALIDATION.mdを参照してください。Windows版OBSの実機、ブラウザの描画、公開TURNサーバー経由の遠隔接続は導入先で確認が必要です。
 このツール自身のソースはMIT。依存ソフトは各ライセンスと利用条件に従います。
-
-## 1080p / 最大60FPS・管理画面での音源選択
-
-[設定と更新手順](AV_SETTINGS.md)を参照してください。ゲーム音など共有したいOBS音源だけを管理画面で選べます。既存の本配信・録画に使っていない音声トラックを共有用に確保します。60FPSにはOBS側も60FPSの設定が必要です。

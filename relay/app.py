@@ -12,12 +12,9 @@ from aiohttp import web, WSMsgType
 
 
 class Broker:
-    def __init__(self, key, turn_secret, turn_host, origins, turn_port=3479, admin_key=None):
+    def __init__(self, key, turn_secret, turn_host, origins, turn_port=3479):
         if len(key)<32 or len(turn_secret)<32:
             raise ValueError('Publisher key and TURN secret must be at least 32 characters')
-        if admin_key is not None and (len(admin_key)<32 or admin_key in (key,turn_secret)):
-            raise ValueError('Admin key must be distinct and at least 32 characters')
-        self.admin_key=admin_key; self.remote_admin=False
         self.key=key; self.turn_secret=turn_secret; self.turn_host=turn_host; self.turn_port=turn_port
         self.origins=set(origins); self.ws=None; self.token=''; self.updated=0
         self.state={'sharing':False,'live':False,'error':''}
@@ -35,32 +32,23 @@ class Broker:
         if not self.token or not secrets.compare_digest(request.headers.get('Authorization',''),'Bearer '+self.token):
             raise web.HTTPUnauthorized(text='招待URLが無効です。新しいURLを受け取ってください。')
 
-    def authorize_admin(self,request):
-        if not self.admin_key or not secrets.compare_digest(request.headers.get('Authorization',''),'Bearer '+self.admin_key):
-            raise web.HTTPUnauthorized(text='管理キーが一致しません。AWS側のadmin_keyを入力してください。')
-
     def online(self):
         return self.ws is not None and not self.ws.closed and time.monotonic()-self.updated<6
 
     async def forward(self,kind,request):
-        authorize=self.authorize_admin if kind=='admin' else self.authorize
-        authorize(request)
+        self.authorize(request)
         if not self.online():
             raise web.HTTPServiceUnavailable(text='配信PCが未接続です。')
         if kind=='offer' and (not self.state['live'] or not self.state['sharing']):
             raise web.HTTPConflict(text='本番映像の共有開始を待っています。')
-        if kind=='admin' and not self.remote_admin:
-            raise web.HTTPConflict(text='配信PCのpublisher.pyを管理画面対応版へ更新してください。')
-        if len(self.pending)>=(8 if kind=='admin' else 6):
+        if len(self.pending)>=6:
             raise web.HTTPTooManyRequests(text='接続が混み合っています。少し待って再試行してください。')
         try:
-            data={'action':'status'} if request.method=='GET' else await request.json()
+            data=await request.json()
         except (ValueError,UnicodeError):
             raise web.HTTPBadRequest(text='接続情報が不正です。')
         if not isinstance(data,dict):
             raise web.HTTPBadRequest()
-        if kind=='admin' and data.get('action') not in ('status','start','stop','rotate','disconnect','av_config'):
-            raise web.HTTPBadRequest(text='この管理操作には対応していません。接続設定は配信PCで変更してください。')
         rid=secrets.token_urlsafe(16);future=asyncio.get_running_loop().create_future()
         self.pending[rid]=future
         token=self.token
@@ -68,7 +56,7 @@ class Broker:
             await self.ws.send_json({'type':kind,'request_id':rid,'token':token,'data':data,'ice_servers':self.ice(publisher=True)})
             result=await asyncio.wait_for(future,30)
             # A token rotation while answering invalidates this request too.
-            authorize(request)
+            self.authorize(request)
             return web.json_response(result['data'],status=result['status'])
         except asyncio.TimeoutError:
             raise web.HTTPGatewayTimeout(text='配信PCへの接続がタイムアウトしました。')
@@ -106,7 +94,6 @@ def create_app(b):
         return web.json_response({**state,'ice_servers':b.ice()})
     async def offer(request):return await b.forward('offer',request)
     async def leave(request):return await b.forward('leave',request)
-    async def admin(request):return await b.forward('admin',request)
 
     async def publisher(request):
         if not secrets.compare_digest(request.headers.get('Authorization',''),'Bearer '+b.key):
@@ -128,7 +115,6 @@ def create_app(b):
                     token=message.get('token','')
                     if not isinstance(token,str) or not 32<=len(token)<=128:
                         await ws.close(code=1008);break
-                    b.remote_admin=message.get('remote_admin') is True
                     b.token=token;b.updated=time.monotonic()
                     b.state={k:bool(message.get(k)) for k in ('sharing','live')}
                     b.state['error']=str(message.get('error',''))[:300]
@@ -139,7 +125,7 @@ def create_app(b):
                     if future and not future.done():future.set_result({'status':code,'data':message.get('data',{})})
         finally:
             if b.ws is ws:
-                b.ws=None;b.remote_admin=False;b.state.update(sharing=False,live=False)
+                b.ws=None;b.state.update(sharing=False,live=False)
             for f in b.pending.values():
                 if not f.done():f.set_exception(ConnectionError())
         return ws
@@ -152,8 +138,6 @@ def create_app(b):
     app.router.add_get('/api/status',status)
     app.router.add_post('/api/offer',offer)
     app.router.add_post('/api/leave',leave)
-    app.router.add_get('/api/admin',admin)
-    app.router.add_post('/api/admin',admin)
     app.router.add_get('/ws/publisher',publisher)
     app.router.add_route('OPTIONS','/{path:.*}',health)
     return app
@@ -161,5 +145,5 @@ def create_app(b):
 
 if __name__=='__main__':
     config=json.loads(Path(os.environ.get('CASTER_CONFIG','/etc/obs-caster-share/config.json')).read_text())
-    broker=Broker(config['publisher_key'],config['turn_secret'],config['turn_host'],config['origins'],config.get('turn_port',3479),admin_key=config.get('admin_key'))
+    broker=Broker(config['publisher_key'],config['turn_secret'],config['turn_host'],config['origins'],config.get('turn_port',3479))
     web.run_app(create_app(broker),host='127.0.0.1',port=8792,access_log=None)

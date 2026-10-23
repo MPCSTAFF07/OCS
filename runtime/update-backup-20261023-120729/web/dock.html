@@ -1,0 +1,25 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>実況共有</title><link rel="stylesheet" href="/assets/style.css"><body class="dock"><header><strong>実況共有</strong><span id="badge">確認中</span></header><main>
+<p id="message" role="status">接続しています。</p>
+<div class="buttons"><button id="start" class="primary">共有開始</button><button id="stop">停止</button></div>
+<section aria-labelledby="av-title"><h2 id="av-title">共有する映像・音声</h2>
+<p id="av-info" role="status">OBSの音源を確認しています。</p>
+<fieldset id="av-fields" disabled><legend>画質と音源</legend>
+<label for="av-height">解像度</label><select id="av-height"><option value="540">960×540</option><option value="720">1280×720</option><option value="1080" selected>1920×1080</option></select>
+<label for="av-fps">FPS上限</label><select id="av-fps"><option value="30">30FPS</option><option value="60" selected>60FPS</option></select>
+<label for="av-bitrate">映像ビットレート（kbps）</label><input id="av-bitrate" type="number" min="1500" max="12000" step="500" value="8000">
+<p><small>60FPSにはOBSの設定 → 映像も60FPSにしてください。共有はOBSの出力FPSまでです。回線やPC負荷に応じて画質は変動します。</small></p>
+<h2>共有に載せる音（OBSの音声ミキサー）</h2><div id="audio-sources"></div>
+<p id="av-note"></p><p><small>実況・解説・Discordの音源はチェックを外します。ゲームと通話が同じ「デスクトップ音声」に入る場合は、OBSのアプリケーション音声キャプチャで分けてください。OBSのミュートと音量も反映されます。</small></p>
+<button id="av-save" type="button">映像・音声設定を保存</button>
+</fieldset><small>共有中に保存すると視聴接続を切断して再開始します。視聴側は自動で再接続します。戻らない場合は退出して視聴開始を押してください。</small></section>
+<section><h2>招待URL</h2><input id="invite" readonly aria-label="招待URL"><div class="buttons"><button id="copy">URLをコピー</button><button id="rotate">URLを更新</button></div><small>実況解説側はURLを開くだけで視聴できます。</small></section>
+<section><h2>接続者 <span id="count">0</span></h2><ul id="viewers"></ul></section>
+<details open><summary>公開接続の設定・OBSへの追加</summary>
+<label for="relay">中継URL</label><input id="relay" placeholder="https://配信サーバーのドメイン/caster">
+<label for="viewer">GitHub Pagesの視聴ページURL</label><input id="viewer" placeholder="https://ユーザー名.github.io/リポジトリ名/">
+<label for="key">配信キー</label><input id="key" type="password" autocomplete="off" placeholder="初回のみ入力。保存後は空欄で維持">
+<button id="save">保存して接続</button><p id="publicstate">未設定</p>
+<label for="dockurl">OBSカスタムブラウザドック用URL</label><input id="dockurl" readonly><button id="copydock">管理URLをコピー</button>
+<p>OBS → ドック → カスタムブラウザドックに追加してください。実況解説へは招待URLだけを渡します。</p></details>
+<p class="error" id="error" role="alert"></p>
+</main><script src="/assets/av-controls.js"></script><script src="/assets/dock.js"></script></body></html>

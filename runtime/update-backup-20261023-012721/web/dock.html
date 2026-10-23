@@ -1,0 +1,14 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>実況共有</title><link rel="stylesheet" href="/assets/style.css"><body class="dock"><header><strong>実況共有</strong><span id="badge">確認中</span></header><main>
+<p id="message" role="status">接続しています。</p>
+<div class="buttons"><button id="start" class="primary">共有開始</button><button id="stop">停止</button></div>
+<section><h2>招待URL</h2><input id="invite" readonly aria-label="招待URL"><div class="buttons"><button id="copy">URLをコピー</button><button id="rotate">URLを更新</button></div><small>実況解説側はURLを開くだけで視聴できます。</small></section>
+<section><h2>接続者 <span id="count">0</span></h2><ul id="viewers"></ul></section>
+<details open><summary>公開接続の設定・OBSへの追加</summary>
+<label for="relay">中継URL</label><input id="relay" placeholder="https://配信サーバーのドメイン/caster">
+<label for="viewer">GitHub Pagesの視聴ページURL</label><input id="viewer" placeholder="https://ユーザー名.github.io/リポジトリ名/">
+<label for="key">配信キー</label><input id="key" type="password" autocomplete="off" placeholder="初回のみ入力。保存後は空欄で維持">
+<button id="save">保存して接続</button><p id="publicstate">未設定</p>
+<label for="dockurl">OBSカスタムブラウザドック用URL</label><input id="dockurl" readonly><button id="copydock">管理URLをコピー</button>
+<p>OBS → ドック → カスタムブラウザドックに追加してください。実況解説へは招待URLだけを渡します。</p></details>
+<p class="error" id="error" role="alert"></p>
+</main><script src="/assets/dock.js"></script></body></html>

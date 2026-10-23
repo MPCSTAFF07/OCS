@@ -86,7 +86,6 @@ def main():
     confdir=Path('/etc/obs-caster-share');confdir.mkdir(mode=0o700,exist_ok=True)
     cfg_path=confdir/'config.json'
     cfg=json.loads(cfg_path.read_text()) if cfg_path.exists() else {'publisher_key':secrets.token_urlsafe(32),'turn_secret':secrets.token_urlsafe(48)}
-    cfg.setdefault('admin_key',secrets.token_urlsafe(32))
     cfg.update(turn_host=domain,turn_port=3479,origins=[origin])
     run('apt-get','update')
     run('apt-get','install','-y','python3-venv','coturn')
@@ -177,13 +176,12 @@ WantedBy=multi-user.target
     run('systemctl','enable','--now','obs-caster-relay','obs-caster-turn')
     run('systemctl','restart','obs-caster-relay','obs-caster-turn')
     run('systemctl','reload','nginx')
-    setup={'relay_url':f'https://{domain}/caster','viewer_url':args.pages_url.rstrip('/')+'/','publisher_key':cfg['publisher_key'],'admin_key':cfg['admin_key'],'admin_url':args.pages_url.rstrip('/')+'/manage.html'}
+    setup={'relay_url':f'https://{domain}/caster','viewer_url':args.pages_url.rstrip('/')+'/','publisher_key':cfg['publisher_key']}
     out=Path('/root/obs-caster-connection.json');out.write_text(json.dumps(setup,indent=2));out.chmod(0o600)
     print('Installed. Connection settings: sudo cat /root/obs-caster-connection.json')
     print('AWS Security Group / host firewall: allow TCP 443, UDP+TCP 3479, UDP 48900-49000.')
     print('Health check: '+setup['relay_url']+'/health')
     print('OBS dock: enter relay_url, viewer_url and publisher_key. Never put the key in GitHub.')
-    print('GitHub Pages management: '+setup['admin_url']+' (use admin_key to sign in)')
 
 
 if __name__=='__main__':main()
