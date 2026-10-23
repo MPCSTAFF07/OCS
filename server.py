@@ -15,6 +15,9 @@ from aiohttp import web
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCRtpSender, RTCSessionDescription, MediaStreamTrack
 from aiortc.codecs import h264, vpx
 from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRelay
+from shared_video import SharedVP8, bind_frame, enable_shared_vp8
+
+enable_shared_vp8()
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("caster-share")
@@ -52,6 +55,7 @@ class MonitorTrack(MediaStreamTrack):
         self.source = source
         self.state = state
         self.next_time = None
+        self.hub = state.video_encoder if self.kind == "video" else None
 
     async def recv(self):
         while True:
@@ -67,6 +71,7 @@ class MonitorTrack(MediaStreamTrack):
                 self.next_time += interval
                 if self.next_time < stamp:
                     self.next_time = stamp + interval
+                bind_frame(frame, self.hub)
                 return frame
 
 
@@ -95,6 +100,7 @@ class Studio:
         if self.av["audio_mode"] == "selected":
             self.write_av()
         self.player = None
+        self.video_encoder = SharedVP8()
         self.relay = MediaRelay()
         self.tracks = []
         self.sink = None
@@ -164,6 +170,7 @@ class Studio:
             invite_url = self.public["viewer_url"] + "#" + urlencode({"api": self.public["relay_url"], "token": self.invite})
         return dict(sharing=self.sharing, live=live, error=self.error,
                     av=self.av, obs_audio=self.obs_details(),
+                    performance=self.video_encoder.stats(),
                     public_state=self.public_state,
                     public={k:v for k,v in self.public.items() if k != "publisher_key"},
                     obs=self.obs_status(), base_url=self.base_url,
@@ -211,6 +218,7 @@ class Studio:
             details = self.obs_details()
             if details.get("error") or not details.get("available_track"):
                 raise web.HTTPConflict(text=details.get("error") or "共有用の音声トラックを確保できません。")
+        self.video_encoder = SharedVP8()
         self.sharing = True
         self.error = ""
         self.last_frame.clear()
@@ -241,6 +249,7 @@ class Studio:
                     t.stop()
             self.player = None
         self.relay = MediaRelay()
+        await asyncio.to_thread(self.video_encoder.close)
         self.last_frame.clear()
 
     async def stop(self):
@@ -465,3 +474,4 @@ if __name__ == "__main__":
         import threading
         threading.Timer(1.5, lambda: webbrowser.open(dock_url)).start()
     web.run_app(create_app(studio), sock=listener, access_log=None)
+

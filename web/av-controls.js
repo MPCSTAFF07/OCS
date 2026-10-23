@@ -12,6 +12,7 @@ window.OCSAV = function(send){
     if(!cfg||!info){get('av-info').textContent='配信PCのOCS・LuaとAWSの中継を更新すると設定できます。';return;}
     const native=info.native_fps?Number(info.native_fps).toFixed(2).replace(/\.00$/,'')+'FPS':'確認中';
     get('av-info').textContent=info.error||'OBS：'+(info.native_width||'?')+'×'+(info.native_height||'?')+' / '+native+' · 共有専用トラック：'+(info.available_track||'空きなし');
+    if(s.performance?.encoded_frames>0){get('av-info').textContent+=' · OCS圧縮：'+s.performance.encoded_fps+'FPS / '+s.performance.encode_ms+'ms';}
     if(!dirty){
       get('av-height').value=cfg.height;get('av-fps').value=cfg.fps;get('av-bitrate').value=cfg.bitrate;
     }
@@ -36,3 +37,4 @@ window.OCSAV = function(send){
   };
   return {render,unavailable(){field.disabled=true;},reset(){dirty=false;signature='';rows.clear();get('audio-sources').replaceChildren();field.disabled=true;}};
 };
+
